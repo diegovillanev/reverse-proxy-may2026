@@ -1,0 +1,68 @@
+# Handle line endings automatically
+* text=auto
+
+# Specific file types to enforce LF (Unix line endings)
+*.sh      text eol=lf
+*.bash    text eol=lf
+*.zsh     text eol=lf
+*.py      text eol=lf
+*.pl      text eol=lf
+*.rb      text eol=lf
+*.html    text eol=lf
+*.css     text eol=lf
+*.js      text eol=lf
+*.jsx     text eol=lf
+*.ts      text eol=lf
+*.tsx     text eol=lf
+*.yml     text eol=lf
+*.yaml    text eol=lf
+*.json    text eol=lf
+*.xml     text eol=lf
+*.java    text eol=lf
+*.c       text eol=lf
+*.cpp     text eol=lf
+*.h       text eol=lf
+*.hpp     text eol=lf
+*.go      text eol=lf
+*.php     text eol=lf
+
+# Specific file types to enforce CRLF (Windows line endings)
+*.bat     text eol=crlf
+*.cmd     text eol=crlf
+*.ps1     text eol=crlf
+
+# Binary files should not be modified
+*.jpg     binary
+*.jpeg    binary
+*.png     binary
+# *.png     filter=lfs diff=lfs merge=lfs -text
+*.gif     binary
+*.ico     binary
+*.pdf     binary
+*.doc     binary
+*.docx    binary
+*.xls     binary
+*.xlsx    binary
+*.ppt     binary
+*.pptx    binary
+*.zip     binary
+*.tar.gz  binary
+*.7z      binary
+*.exe     binary
+*.dll     binary
+*.so      binary
+
+# Preserve specific file types as-is
+*.eot     -text
+*.ttf     -text
+*.woff    -text
+*.woff2   -text
+
+# Prevent certain files from being normalized
+*.crt     -text
+*.pem     -text
+*.key     -text
+
+# Handle markdown and text files with LF
+*.md      text eol=lf
+*.txt     text eol=lf

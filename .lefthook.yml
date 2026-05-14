@@ -1,0 +1,21 @@
+pre-commit:
+  parallel: true
+  commands:
+    ############################################################################
+    #### =====> dotenv hooks <=========================
+    ## Try to git add .env → ❌ blocked
+    ## Try to change .env.template after it’s in the repo → ❌ blocked
+    ## Add new .env.template2 → ✅ allowed (first-time add is okay)
+    ## Try to change .env.template2 later → ❌ blocked
+    no-env-file:
+      run: ./.githooks/no-env-file.sh
+    lock-env-pattern:
+      run: ./.githooks/lock-env-pattern.sh
+    ############################################################################
+
+## Every time a checkout happens, run this Git command.
+post-checkout:
+  commands:
+    #### =====> Assume unchanged files <=========================
+    assume-unchanged-files:
+      run: ./.githooks/assume-unchanged-files.sh

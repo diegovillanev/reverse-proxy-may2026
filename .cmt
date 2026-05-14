@@ -1,0 +1,60 @@
+#
+# $(cmt) template
+#
+
+########## The input parts #####################################################
+{
+	"Type" = [
+		"mod",
+		"edit",
+		"blob",
+		"tree",
+		"fix",
+		"style",
+		"refactor",
+		"feat",
+		"docs",
+		"test",
+		"build",
+		"devops",
+		"ci-cd",
+		"ci",
+		"cd",
+		"notice",
+		"chore"
+		"revert",
+	]
+	# "Ticket" = @
+	# "Scope" = @   ## Single line input
+	"Subject" = @
+	# "Meta" = @
+	"Body" = !@     ## Multi-line input
+	# "Footer" = !@
+}
+################################################################################
+
+
+########## Predefined messages (Optional) ######################################
+## When describing the subject line, use these sentences below as a guide:
+## * "After this commit, the application will    <your_subject_line_here>"
+## *   “After this commit, the code/file will    <your_subject_line_here>”
+## *            "If applied, this commit will    <your_subject_line_here>"
+{
+		 initVCS = "init: add essential files for a VCS repository #first-commit"
+			init = "init: add essential files for a source code repository #first-commit"
+	  inicialVCS = "init: añadir archivos esenciales para un repositorio VCS #first-commit"
+		 inicial = "init: añadir archivos esenciales para un repositorio de codigo fuente #first-commit"
+	vb = "chore: bump version"
+	bdv = "chore: bump de version"
+	readme = "docs: update README.md"
+	readme = "docs: actualizar README.md"
+}
+################################################################################
+
+
+########## The output format ###################################################
+## Takes the values provided from the input stage and interpolates them in
+
+${Type}${Subject}
+
+${Body}
