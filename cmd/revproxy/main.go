@@ -6,18 +6,21 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
 	"diegovillanev/reverse-proxy-may2026/internal/config"
+	"diegovillanev/reverse-proxy-may2026/internal/proxy"
 
 	"github.com/lmittmann/tint"
 	slogmulti "github.com/samber/slog-multi"
 )
 
 func main() {
+	// CONFIG ##########################################################################################################
 	cfg := config.Load()
 
 	var level slog.Level
@@ -45,9 +48,24 @@ func main() {
 		}
 	}
 
-	slog.SetDefault(slog.New(logHandler))
+	rootLogger := slog.New(logHandler)
 
-	mux := http.NewServeMux()
+	// CONFIG ##########################################################################################################
+
+	u, err := url.Parse(cfg.Upstream.ProxyPass)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		slog.Error("Bad ProxyPass", "url", cfg.Upstream.ProxyPass)
+	}
+
+	proxy := proxy.ReverseProxy{
+		Upstream: u,
+		Client: &http.Client{
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
+		Logger: rootLogger,
+	}
 
 	// Setup signal context for Graceful Shutdown
 	signalCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -60,7 +78,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:    addr,
-		Handler: mux,
+		Handler: &proxy,
 		BaseContext: func(_ net.Listener) context.Context {
 			return ongoingCtx
 		},
@@ -83,7 +101,8 @@ func main() {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout)
 	defer cancel()
-	err := srv.Shutdown(shutdownCtx)
+
+	err = srv.Shutdown(shutdownCtx)
 	stopOngoingGracefully()
 	if err != nil {
 		slog.Info("Failed to wait for ongoing requests to finish, waiting for forced cancellation")
