@@ -9,8 +9,9 @@ import (
 )
 
 type Config struct {
-	Server ServerConfig
-	App    AppConfig
+	Server   ServerConfig
+	App      AppConfig
+	Upstream UpstreamConfig
 }
 
 type ServerConfig struct {
@@ -27,6 +28,10 @@ type AppConfig struct {
 	LogFile   string // if set, also write JSON logs to this path for log shippers
 }
 
+type UpstreamConfig struct {
+	ProxyPass string
+}
+
 // Load reads every setting from environment variables.
 // Panics on missing required values so the service fails fast at startup.
 func Load() *Config {
@@ -39,6 +44,9 @@ func Load() *Config {
 			LogLevel:  getString("LOG_LEVEL", "info"),
 			LogFormat: getString("LOG_FORMAT", "text"),
 			LogFile:   getString("LOG_FILE", ""),
+		},
+		Upstream: UpstreamConfig{
+			ProxyPass: getString("PROXY_PASS", ""),
 		},
 	}
 }
