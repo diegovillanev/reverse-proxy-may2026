@@ -55,6 +55,12 @@ func main() {
 	u, err := url.Parse(cfg.Upstream.ProxyPass)
 	if err != nil || u.Scheme == "" || u.Host == "" {
 		rootLogger.Error("Bad ProxyPass", "url", cfg.Upstream.ProxyPass)
+		os.Exit(1)
+	}
+
+	if cfg.Server.TTL <= 0 {
+		rootLogger.Error("TTL must be greater than 0", "ttl", cfg.Server.TTL)
+		os.Exit(1)
 	}
 
 	proxy := proxy.ReverseProxy{
@@ -65,6 +71,7 @@ func main() {
 			},
 		},
 		Logger: rootLogger,
+		Cache:  proxy.NewCache(cfg.Server.TTL),
 	}
 
 	// Setup signal context for Graceful Shutdown
