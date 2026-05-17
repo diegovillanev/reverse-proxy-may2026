@@ -17,6 +17,7 @@ type Config struct {
 type ServerConfig struct {
 	Port            int
 	AllowedOrigins  []string
+	TTL             time.Duration
 	ReadTimeout     time.Duration
 	WriteTimeout    time.Duration
 	ShutdownTimeout time.Duration
@@ -39,6 +40,7 @@ func Load() *Config {
 		Server: ServerConfig{
 			Port:           getInt("SERVER_PORT", 8080),
 			AllowedOrigins: splitComma(getString("CORS_ALLOWED_ORIGINS", "*")),
+			TTL:            seconds("TTL", 10),
 		},
 		App: AppConfig{
 			LogLevel:  getString("LOG_LEVEL", "info"),
@@ -65,6 +67,10 @@ func getInt(key string, fallback int) int {
 		}
 	}
 	return fallback
+}
+
+func seconds(key string, fallback int) time.Duration {
+	return time.Duration(getInt(key, fallback)) * time.Second
 }
 
 func splitComma(s string) []string {

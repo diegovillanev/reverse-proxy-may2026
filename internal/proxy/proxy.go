@@ -2,12 +2,15 @@
 package proxy
 
 import (
+	"bytes"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
+	"time"
 )
 
 var HopHeaders = []string{
@@ -19,12 +22,6 @@ var HopHeaders = []string{
 	"Trailer",
 	"Transfer-Encoding",
 	"Upgrade",
-}
-
-type ReverseProxy struct {
-	Upstream *url.URL
-	Client   *http.Client
-	Logger   *slog.Logger
 }
 
 func StripHopByHop(h http.Header) {
@@ -40,7 +37,101 @@ func StripHopByHop(h http.Header) {
 	}
 }
 
+// ----------------------------------------------------------------------
+// Simple Cache feature, a key-value store.
+// ----------------------------------------------------------------------
+
+type Entry struct {
+	Status  int
+	Header  http.Header
+	Body    []byte
+	Expires time.Time
+}
+
+type SimpleCache struct {
+	Mu      sync.RWMutex
+	TTL     time.Duration
+	Entries map[string]*Entry
+}
+
+func NewCache(ttl time.Duration) *SimpleCache {
+	return &SimpleCache{TTL: ttl, Entries: make(map[string]*Entry)}
+}
+
+func (c *SimpleCache) Get(key string) (*Entry, bool) {
+	c.Mu.RLock()
+	e, ok := c.Entries[key]
+	c.Mu.RUnlock()
+	if !ok {
+		return nil, false
+	}
+	if time.Now().After(e.Expires) {
+		c.Mu.Lock()
+		delete(c.Entries, key)
+		c.Mu.Unlock()
+		return nil, false
+	}
+	return e, true
+}
+
+func (c *SimpleCache) Put(key string, e *Entry) {
+	e.Expires = time.Now().Add(c.TTL)
+	c.Mu.Lock()
+	c.Entries[key] = e
+	c.Mu.Unlock()
+}
+
+func CacheKey(r *http.Request) string {
+	return r.Method + " " + r.URL.RequestURI()
+}
+
+func IsCacheable(r *http.Request, status int) bool {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		return false
+	}
+	return status >= 200 && status < 300
+}
+
+func WriteEntry(w http.ResponseWriter, e *Entry, status string) {
+	for k, vs := range e.Header {
+		for _, v := range vs {
+			w.Header().Add(k, v)
+		}
+	}
+	w.Header().Set("X-Cache", status)
+	w.WriteHeader(e.Status)
+	_, _ = io.Copy(w, bytes.NewReader(e.Body))
+}
+
+// ----------------------------------------------------------------------
+// Proxy.
+// ----------------------------------------------------------------------
+
+type ReverseProxy struct {
+	Upstream *url.URL
+	Client   *http.Client
+	Logger   *slog.Logger
+	Cache    *SimpleCache
+}
+
 func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Create a Cache Key to look for a cached request first
+	key := CacheKey(r)
+
+	// We look up into the Cache Map using a Mutex to protect against data races
+	// If we find one, we send it and log accordingly.
+	if hit, ok := p.Cache.Get(key); ok {
+		WriteEntry(w, hit, "HIT")
+		p.Logger.LogAttrs(
+			r.Context(),
+			slog.LevelInfo,
+			"Cache HIT",
+			slog.String("method", r.Method),
+			slog.String("uri", r.URL.RequestURI()),
+		)
+		return
+	}
+
 	outURL := *p.Upstream
 	outURL.Path = r.URL.Path
 	outURL.RawQuery = r.URL.RawQuery
@@ -76,15 +167,30 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
-	for k, vs := range resp.Header {
-		for _, v := range vs {
-			w.Header().Add(k, v)
-		}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		p.Logger.Error("Bad Gateway", "error", err.Error(), "status", http.StatusBadGateway)
+		http.Error(w, "Bad Gateway: "+err.Error(), http.StatusBadGateway)
 	}
-	StripHopByHop(w.Header())
 
-	w.WriteHeader(resp.StatusCode)
-	if _, err := io.Copy(w, resp.Body); err != nil {
-		p.Logger.Error("Copy error after status sent", "error", err)
+	// This seems a far better alternative than the for loop
+	hdrs := resp.Header.Clone()
+	StripHopByHop(hdrs)
+	e := &Entry{Status: resp.StatusCode, Header: hdrs, Body: body}
+
+	if IsCacheable(r, resp.StatusCode) {
+		p.Cache.Put(key, e)
 	}
+
+	WriteEntry(w, e, "MISS")
+	p.Logger.LogAttrs(
+		r.Context(),
+		slog.LevelInfo,
+		"Cache MISS",
+		slog.String("method", r.Method),
+		slog.String("uri", r.URL.RequestURI()),
+		slog.Int("status-code", resp.StatusCode),
+		slog.Int("body-size", len(body)),
+	)
+	// p.Logger.Info("%s %s -> MISS (%d, %d bytes)", r.Method, r.URL.RequestURI(), "status-code", resp.StatusCode, "body-size", len(body))
 }
