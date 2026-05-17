@@ -49,7 +49,7 @@ type Entry struct {
 }
 
 type SimpleCache struct {
-	Mu      sync.RWMutex
+	Mu      sync.Mutex
 	TTL     time.Duration
 	Entries map[string]*Entry
 }
@@ -59,16 +59,15 @@ func NewCache(ttl time.Duration) *SimpleCache {
 }
 
 func (c *SimpleCache) Get(key string) (*Entry, bool) {
-	c.Mu.RLock()
+	c.Mu.Lock()
+	defer c.Mu.Unlock()
 	e, ok := c.Entries[key]
-	c.Mu.RUnlock()
+
 	if !ok {
 		return nil, false
 	}
 	if time.Now().After(e.Expires) {
-		c.Mu.Lock()
 		delete(c.Entries, key)
-		c.Mu.Unlock()
 		return nil, false
 	}
 	return e, true
