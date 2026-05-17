@@ -84,11 +84,18 @@ func CacheKey(r *http.Request) string {
 	return r.Method + " " + r.URL.RequestURI()
 }
 
-func IsCacheable(r *http.Request, status int) bool {
+func IsCacheable(r *http.Request, resp *http.Response) bool {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		return false
 	}
-	return status >= 200 && status < 300
+	if resp.StatusCode < 200 && resp.StatusCode >= 300 {
+		return false
+	}
+	cc := resp.Header.Get("Cache-Control")
+	if strings.Contains(cc, "no-store") || strings.Contains(cc, "no-cache") {
+		return false
+	}
+	return true
 }
 
 func WriteEntry(w http.ResponseWriter, e *Entry, status string) {
@@ -117,7 +124,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Create a Cache Key to look for a cached request first
 	key := CacheKey(r)
 
-	// We look up into the Cache Map using a Mutex to protect against data races
+	// We look up into the Cache Map using a Mutex to protect against race conditions
 	// If we find one, we send it and log accordingly.
 	if hit, ok := p.Cache.Get(key); ok {
 		WriteEntry(w, hit, "HIT")
@@ -142,15 +149,10 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for k, vs := range r.Header {
-		for _, v := range vs {
-			outReq.Header.Add(k, v)
-		}
-	}
+	outReq.Header = r.Header.Clone()
 	StripHopByHop(outReq.Header)
 
 	outReq.Host = p.Upstream.Host
-
 	if clientIP, _, splitErr := net.SplitHostPort(r.RemoteAddr); splitErr == nil {
 		if prior := outReq.Header.Get("X-Forwarded-For"); prior != "" {
 			clientIP = prior + ", " + clientIP
@@ -177,7 +179,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	StripHopByHop(hdrs)
 	e := &Entry{Status: resp.StatusCode, Header: hdrs, Body: body}
 
-	if IsCacheable(r, resp.StatusCode) {
+	if IsCacheable(r, resp) {
 		p.Cache.Put(key, e)
 	}
 
@@ -191,5 +193,4 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		slog.Int("status-code", resp.StatusCode),
 		slog.Int("body-size", len(body)),
 	)
-	// p.Logger.Info("%s %s -> MISS (%d, %d bytes)", r.Method, r.URL.RequestURI(), "status-code", resp.StatusCode, "body-size", len(body))
 }
