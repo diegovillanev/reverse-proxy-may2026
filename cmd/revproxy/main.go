@@ -54,7 +54,7 @@ func main() {
 
 	u, err := url.Parse(cfg.Upstream.ProxyPass)
 	if err != nil || u.Scheme == "" || u.Host == "" {
-		slog.Error("Bad ProxyPass", "url", cfg.Upstream.ProxyPass)
+		rootLogger.Error("Bad ProxyPass", "url", cfg.Upstream.ProxyPass)
 	}
 
 	proxy := proxy.ReverseProxy{
@@ -87,9 +87,9 @@ func main() {
 	// ListenAndServe() intentionally returns http.ErrServerClosed. This is a normal lifecycle event,
 	// not an actual network failure, so we filter it out to avoid logging a false error.
 	go func() {
-		slog.Info("Server listening", "addr", addr)
+		rootLogger.Info("Server listening", "addr", addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("Server error", "error", err)
+			rootLogger.Error("Server error", "error", err)
 			os.Exit(1)
 		}
 	}()
@@ -97,7 +97,7 @@ func main() {
 	// Wait for SIGINT/SIGTERM
 	<-signalCtx.Done()
 	stop()
-	slog.Info("Received shutdown signal, shutting down...")
+	rootLogger.Info("Received shutdown signal, shutting down...")
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout)
 	defer cancel()
@@ -105,9 +105,9 @@ func main() {
 	err = srv.Shutdown(shutdownCtx)
 	stopOngoingGracefully()
 	if err != nil {
-		slog.Info("Failed to wait for ongoing requests to finish, waiting for forced cancellation")
+		rootLogger.Info("Failed to wait for ongoing requests to finish, waiting for forced cancellation...")
 		time.Sleep(cfg.Server.ShutdownTimeout)
 	}
 
-	slog.Info("Server shutdown gracefully")
+	rootLogger.Info("Server shutdown gracefully")
 }
