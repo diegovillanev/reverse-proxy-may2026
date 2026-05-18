@@ -50,18 +50,18 @@ func main() {
 
 	rootLogger := slog.New(logHandler)
 
-	// CONFIG ##########################################################################################################
-
 	u, err := url.Parse(cfg.Upstream.ProxyPass)
 	if err != nil || u.Scheme == "" || u.Host == "" {
 		rootLogger.Error("Bad ProxyPass", "url", cfg.Upstream.ProxyPass)
 		os.Exit(1)
 	}
 
-	if cfg.Server.TTL <= 0 {
-		rootLogger.Error("TTL must be greater than 0", "ttl", cfg.Server.TTL)
+	if cfg.Upstream.TTL <= 0 {
+		rootLogger.Error("TTL must be greater than 0", "ttl", cfg.Upstream.TTL)
 		os.Exit(1)
 	}
+
+	// CONFIG ##########################################################################################################
 
 	proxy := proxy.ReverseProxy{
 		Upstream: u,
@@ -71,7 +71,7 @@ func main() {
 			},
 		},
 		Logger: rootLogger,
-		Cache:  proxy.NewCache(cfg.Server.TTL),
+		Cache:  proxy.NewCache(cfg.Upstream.TTL, cfg.Upstream.CacheMaxSize),
 	}
 
 	// Setup signal context for Graceful Shutdown
@@ -94,7 +94,8 @@ func main() {
 	// ListenAndServe() intentionally returns http.ErrServerClosed. This is a normal lifecycle event,
 	// not an actual network failure, so we filter it out to avoid logging a false error.
 	go func() {
-		rootLogger.Info("Server listening", "addr", addr)
+		rootLogger.Info("Configuration loaded", "config", cfg)
+		rootLogger.Info("HTTP Server listening", "addr", addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			rootLogger.Error("Server error", "error", err)
 			os.Exit(1)
@@ -113,7 +114,7 @@ func main() {
 	stopOngoingGracefully()
 	if err != nil {
 		rootLogger.Info("Failed to wait for ongoing requests to finish, waiting for forced cancellation...")
-		time.Sleep(cfg.Server.ShutdownTimeout)
+		time.Sleep(cfg.Server.ShutdownHardTimeout)
 	}
 
 	rootLogger.Info("Server shutdown gracefully")

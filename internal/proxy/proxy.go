@@ -3,6 +3,7 @@ package proxy
 
 import (
 	"bytes"
+	"container/list"
 	"io"
 	"log/slog"
 	"net"
@@ -38,46 +39,73 @@ func StripHopByHop(h http.Header) {
 }
 
 // ----------------------------------------------------------------------
-// Simple Cache feature, a key-value store.
+// LRU Cache, better than the TTL Map cache
 // ----------------------------------------------------------------------
 
 type Entry struct {
+	Key     string
 	Status  int
 	Header  http.Header
 	Body    []byte
 	Expires time.Time
 }
 
-type SimpleCache struct {
+type LRUCache struct {
 	Mu      sync.Mutex
 	TTL     time.Duration
-	Entries map[string]*Entry
+	MaxSize int
+	Entries map[string]*list.Element
+	Order   *list.List
 }
 
-func NewCache(ttl time.Duration) *SimpleCache {
-	return &SimpleCache{TTL: ttl, Entries: make(map[string]*Entry)}
+func NewCache(ttl time.Duration, maxSize int) *LRUCache {
+	return &LRUCache{
+		TTL:     ttl,
+		MaxSize: maxSize,
+		Entries: make(map[string]*list.Element),
+		Order:   list.New(),
+	}
 }
 
-func (c *SimpleCache) Get(key string) (*Entry, bool) {
+func (c *LRUCache) Get(key string) (*Entry, bool) {
 	c.Mu.Lock()
 	defer c.Mu.Unlock()
-	e, ok := c.Entries[key]
+	elem, ok := c.Entries[key]
 
 	if !ok {
 		return nil, false
 	}
-	if time.Now().After(e.Expires) {
-		delete(c.Entries, key)
+	entry := elem.Value.(*Entry)
+	if time.Now().After(entry.Expires) {
+		c.remove(elem)
 		return nil, false
 	}
-	return e, true
+	c.Order.MoveToFront(elem)
+	return entry, true
 }
 
-func (c *SimpleCache) Put(key string, e *Entry) {
-	e.Expires = time.Now().Add(c.TTL)
+func (c *LRUCache) Put(key string, newEntry *Entry) {
+	newEntry.Expires = time.Now().Add(c.TTL)
 	c.Mu.Lock()
-	c.Entries[key] = e
-	c.Mu.Unlock()
+	defer c.Mu.Unlock()
+	if elem, ok := c.Entries[key]; ok {
+		c.Order.MoveToFront(elem)
+		elem.Value = newEntry // to update the TTL
+		return
+	}
+	if c.Order.Len() >= c.MaxSize {
+		c.remove(c.Order.Back())
+	}
+	elem := c.Order.PushFront(newEntry)
+	c.Entries[key] = elem
+}
+
+func (c *LRUCache) remove(elem *list.Element) {
+	entry := elem.Value.(*Entry)
+	println("Evicting:", entry.Key, ", Len before:", c.Order.Len())
+	delete(c.Entries, entry.Key)
+	c.Order.Remove(elem)
+	println("Len after:", c.Order.Len())
 }
 
 func CacheKey(r *http.Request) string {
@@ -88,7 +116,7 @@ func IsCacheable(r *http.Request, resp *http.Response) bool {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		return false
 	}
-	if resp.StatusCode < 200 && resp.StatusCode >= 300 {
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return false
 	}
 	cc := resp.Header.Get("Cache-Control")
@@ -117,7 +145,7 @@ type ReverseProxy struct {
 	Upstream *url.URL
 	Client   *http.Client
 	Logger   *slog.Logger
-	Cache    *SimpleCache
+	Cache    *LRUCache
 }
 
 func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -131,7 +159,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		p.Logger.LogAttrs(
 			r.Context(),
 			slog.LevelInfo,
-			"Cache HIT",
+			"Cache HIT ",
 			slog.String("method", r.Method),
 			slog.String("uri", r.URL.RequestURI()),
 		)
@@ -177,7 +205,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// This seems a far better alternative than the for loop
 	hdrs := resp.Header.Clone()
 	StripHopByHop(hdrs)
-	e := &Entry{Status: resp.StatusCode, Header: hdrs, Body: body}
+	e := &Entry{Key: key, Status: resp.StatusCode, Header: hdrs, Body: body}
 
 	if IsCacheable(r, resp) {
 		p.Cache.Put(key, e)

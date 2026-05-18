@@ -15,12 +15,10 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Port            int
-	AllowedOrigins  []string
-	TTL             time.Duration
-	ReadTimeout     time.Duration
-	WriteTimeout    time.Duration
-	ShutdownTimeout time.Duration
+	Port                int
+	AllowedOrigins      []string
+	ShutdownTimeout     time.Duration
+	ShutdownHardTimeout time.Duration
 }
 
 type AppConfig struct {
@@ -30,7 +28,9 @@ type AppConfig struct {
 }
 
 type UpstreamConfig struct {
-	ProxyPass string
+	ProxyPass    string
+	TTL          time.Duration
+	CacheMaxSize int
 }
 
 // Load reads every setting from environment variables.
@@ -38,9 +38,10 @@ type UpstreamConfig struct {
 func Load() *Config {
 	return &Config{
 		Server: ServerConfig{
-			Port:           getInt("SERVER_PORT", 8080),
-			AllowedOrigins: splitComma(getString("CORS_ALLOWED_ORIGINS", "*")),
-			TTL:            seconds("TTL", 10),
+			Port:                getInt("SERVER_PORT", 8080),
+			AllowedOrigins:      splitComma(getString("CORS_ALLOWED_ORIGINS", "*")),
+			ShutdownTimeout:     seconds("SHUTDOWN_TIMEOUT", 15),
+			ShutdownHardTimeout: seconds("SHUTDOWN_HARD_TIMEOUT", 5),
 		},
 		App: AppConfig{
 			LogLevel:  getString("LOG_LEVEL", "info"),
@@ -48,7 +49,9 @@ func Load() *Config {
 			LogFile:   getString("LOG_FILE", ""),
 		},
 		Upstream: UpstreamConfig{
-			ProxyPass: getString("PROXY_PASS", ""),
+			ProxyPass:    getString("PROXY_PASS", ""),
+			TTL:          seconds("TTL", 10),
+			CacheMaxSize: getInt("CACHE_MAX_SIZE", 5),
 		},
 	}
 }
